@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import uuid
 import os
 import datetime
-from openai import OpenAI
 from data_loader import load_and_chunk_pdf, embed_texts
 from vector_db import QdrantStorage
 from custom_types import RAQQueryResult, RAGSearchResult, RAGUpsertResult, RAGChunkAndSrc
@@ -20,6 +19,7 @@ inngest_client = inngest.Inngest(
     serializer=inngest.PydanticSerializer()
 )
 
+
 @inngest_client.create_function(
     fn_id="RAG: Ingest PDF",
     trigger=inngest.TriggerEvent(event="rag/ingest_pdf"),
@@ -30,7 +30,7 @@ inngest_client = inngest.Inngest(
         limit=1,
         period=datetime.timedelta(hours=4),
         key="event.data.source_id",
-  ),
+    ),
 )
 async def rag_ingest_pdf(ctx: inngest.Context):
     def _load(ctx: inngest.Context) -> RAGChunkAndSrc:
@@ -69,31 +69,37 @@ async def rag_query_pdf_ai(ctx: inngest.Context):
 
     found = await ctx.step.run("embed-and-search", lambda: _search(question, top_k), output_type=RAGSearchResult)
 
-    def _generate_answer(question: str, contexts: list[str]) -> str:
+    context_block = "\n\n".join(f"- {c}" for c in found.contexts)
+    user_content = (
+        "Use the following context to answer the question.\n\n"
+        f"Context:\n{context_block}\n\n"
+        f"Question: {question}\n"
+        "Answer concisely using the context above."
+    )
+
+    def _get_groq_answer(content: str) -> str:
+        from openai import OpenAI
+        # Using the standard OpenAI SDK to call the Groq API
         client = OpenAI(
-            api_key=os.getenv("OPENAI_API_KEY"),
+            api_key=os.getenv("GROQ_API_KEY"),
             base_url="https://api.groq.com/openai/v1"
         )
-        context_block = "\n\n".join(f"- {c}" for c in contexts)
-        user_content = (
-            "Use the following context to answer the question.\n\n"
-            f"Context:\n{context_block}\n\n"
-            f"Question: {question}\n"
-            "Answer concisely using the context above."
-        )
-        response = client.chat.completions.create(
-            model="llama3-8b-8192",
+        res = client.chat.completions.create(
+            model="groq/compound",  # 👈 CHANGED THIS LINE!
+            max_tokens=1024,
+            temperature=0.2,
             messages=[
                 {"role": "system", "content": "You answer questions using only the provided context."},
-                {"role": "user", "content": user_content}
-            ],
-            max_tokens=1024,
-            temperature=0.2
+                {"role": "user", "content": content}
+            ]
         )
-        return response.choices[0].message.content.strip()
+        return res.choices[0].message.content.strip()
 
-    answer = await ctx.step.run("llm-answer", lambda: _generate_answer(question, found.contexts))
+    # Get the answer from Groq
+    answer = await ctx.step.run("llm-answer", lambda: _get_groq_answer(user_content))
+
     return {"answer": answer, "sources": found.sources, "num_contexts": len(found.contexts)}
+
 
 app = FastAPI()
 

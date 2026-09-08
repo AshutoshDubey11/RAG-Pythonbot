@@ -3,8 +3,8 @@ from qdrant_client.models import VectorParams, Distance, PointStruct
 
 
 class QdrantStorage:
-    def __init__(self, url="http://localhost:6333", collection="docs", dim=384):
-        self.client = QdrantClient(url=url, timeout=30)
+    def __init__(self, collection="docs_groq", dim=384):
+        self.client = QdrantClient(path="qdrant_data")
         self.collection = collection
         if not self.client.collection_exists(self.collection):
             self.client.create_collection(
@@ -17,17 +17,18 @@ class QdrantStorage:
         self.client.upsert(self.collection, points=points)
 
     def search(self, query_vector, top_k: int = 5):
+        # 👇 This is the line that was still saying .search()
         response = self.client.query_points(
             collection_name=self.collection,
             query=query_vector,
             with_payload=True,
             limit=top_k
         )
-        results = response.points
+
         contexts = []
         sources = set()
 
-        for r in results:
+        for r in response.points:
             payload = getattr(r, "payload", None) or {}
             text = payload.get("text", "")
             source = payload.get("source", "")
