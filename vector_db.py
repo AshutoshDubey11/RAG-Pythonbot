@@ -1,10 +1,17 @@
+import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
 
-
 class QdrantStorage:
-    def __init__(self, collection="docs_groq", dim=384):
-        self.client = QdrantClient(path="qdrant_data")
+    def __init__(self, collection='docs_groq', dim=384):
+        qdrant_url = os.getenv('QDRANT_URL')
+        qdrant_api_key = os.getenv('QDRANT_API_KEY')
+        
+        if qdrant_url and qdrant_api_key:
+            self.client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        else:
+            self.client = QdrantClient(path='qdrant_data')
+            
         self.collection = collection
         if not self.client.collection_exists(self.collection):
             self.client.create_collection(
@@ -12,12 +19,21 @@ class QdrantStorage:
                 vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
             )
 
+    def clear(self):
+        try:
+            self.client.delete_collection(self.collection)
+            self.client.create_collection(
+                collection_name=self.collection,
+                vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+            )
+        except:
+            pass
+
     def upsert(self, ids, vectors, payloads):
         points = [PointStruct(id=ids[i], vector=vectors[i], payload=payloads[i]) for i in range(len(ids))]
         self.client.upsert(self.collection, points=points)
 
     def search(self, query_vector, top_k: int = 5):
-        # 👇 This is the line that was still saying .search()
         response = self.client.query_points(
             collection_name=self.collection,
             query=query_vector,
@@ -29,11 +45,11 @@ class QdrantStorage:
         sources = set()
 
         for r in response.points:
-            payload = getattr(r, "payload", None) or {}
-            text = payload.get("text", "")
-            source = payload.get("source", "")
+            payload = getattr(r, 'payload', None) or {}
+            text = payload.get('text', '')
+            source = payload.get('source', '')
             if text:
                 contexts.append(text)
                 sources.add(source)
 
-        return {"contexts": contexts, "sources": list(sources)}
+        return {'contexts': contexts, 'sources': list(sources)}

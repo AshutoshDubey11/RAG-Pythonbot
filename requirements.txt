@@ -1,11 +1,4 @@
-fastapi
-uvicorn
 streamlit
+requests
 inngest
 python-dotenv
-qdrant-client
-openai
-llama-index-core
-llama-index-readers-file
-sentence-transformers
-torch

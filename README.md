@@ -1,91 +1,115 @@
-# Document AI Assistant (Enterprise RAG Pipeline)
+# Document AI Assistant
+
+> **A Retrieval-Augmented Generation (RAG) platform that enables users to upload PDF documents and interact with their content through natural-language questions.**
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?style=for-the-badge&logo=python)
 ![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit)
 ![Qdrant](https://img.shields.io/badge/Qdrant-Vector_DB-EF1936?style=for-the-badge&logo=qdrant)
-![Inngest](https://img.shields.io/badge/Inngest-Event_Driven-1B1B1B?style=for-the-badge)
+![Hugging Face](https://img.shields.io/badge/HuggingFace-AI-FFD21E?style=for-the-badge&logo=huggingface)
 
-An enterprise-grade **Retrieval-Augmented Generation (RAG)** application. This platform allows users to securely upload private PDF documents, embed them into a local vector database, and query them instantly using AI to extract actionable insights.
+The system combines **LlamaIndex, Hugging Face embeddings, Qdrant vector search, FastAPI, Streamlit, and Groq** to retrieve relevant document context and generate grounded responses with source references.
 
 ---
 
-## System Architecture
+## Live Demo
 
-This project is built using a fully decoupled, asynchronous, event-driven architecture. By utilizing **Inngest** for background job queues, the Streamlit frontend remains perfectly responsive even when processing massive 100+ page PDFs.
+> **Application URL:** [https://doc2chat-ai.streamlit.app/](https://doc2chat-ai.streamlit.app/)
+
+
+---
+
+## Overview
+
+Document AI Assistant transforms unstructured PDF documents into a searchable semantic knowledge base. 
+
+Instead of relying solely on an LLM's pretrained knowledge, the system retrieves relevant passages from the uploaded documents and provides them as context to the LLM before generating a response.
+
+### Key Capabilities
+
+* **Document Processing:** Upload and process PDF documents securely.
+* **Semantic Search:** Lightning-fast vector-based retrieval using Qdrant.
+* **Context-Aware Q&A:** Grounded LLM-powered response generation.
+* **Cloud AI:** Serverless embedding generation via Hugging Face.
+* **Traceability:** Exact source and context references for retrieved information.
+* **Decoupled Design:** Lightweight, independent microservices architecture.
+
+---
+
+## Architecture
+
+The application uses a decoupled cloud architecture consisting of independent frontend, backend, vector storage, embedding, and LLM services.
+
+* **Frontend:** Streamlit *(Deployed on Streamlit Community Cloud)*
+* **Backend:** FastAPI *(Deployed on Render)*
+* **Vector Database:** Qdrant Cloud
+* **Embedding Service:** Hugging Face Serverless Inference API
+* **Embedding Model:** `all-MiniLM-L6-v2`
+* **LLM Provider:** Groq
+
+### System Flow
 
 ```mermaid
-flowchart TD
-    UI[Streamlit Frontend]
-    IN[Inngest Job Queue]
-    FA[FastAPI Backend]
-    LD[LlamaIndex]
-    EM[Sentence-Transformers]
-    LLM[Groq AI]
-    QD[(Qdrant Vector DB)]
+graph TD
+    %% Styling
+    classDef frontend fill:#D8B4E2,stroke:#7B2CBF,stroke-width:2px,color:#000
+    classDef backend fill:#C8B6E6,stroke:#7B2CBF,stroke-width:2px,color:#000
+    classDef database fill:#9A8C98,stroke:#000,stroke-width:2px,color:#fff
+    classDef ai fill:#7B2CBF,stroke:#D8B4E2,stroke-width:2px,color:#fff
 
-    UI -->|Upload PDF / Ask Question| IN
-    IN -->|Trigger Task| FA
-    FA -->|Read Document| LD
-    LD -->|Embed Text| EM
-    EM -->|Save Vectors| QD
-    QD -->|Return Similar Chunks| FA
-    FA -->|Send Context| LLM
-    LLM -->|Generate Answer| UI
+    User([User])
+
+    UI[Streamlit UI<br/>app.py]:::frontend
+    API[FastAPI Backend<br/>main.py]:::backend
+
+    Parser[LlamaIndex<br/>PDF Parsing & Chunking]:::ai
+    HF[Hugging Face<br/>Embedding API]:::ai
+    Q[(Qdrant Cloud<br/>Vector Database)]:::database
+    Groq[Groq API<br/>LLM Inference]:::ai
+
+    User -->|Upload PDF| UI
+    User -->|Ask Question| UI
+
+    UI -->|POST /api/upload| API
+    UI -->|POST /api/query| API
+
+    API --> Parser
+    Parser -->|Document Chunks| HF
+    HF -->|384-D Embeddings| API
+    API -->|Upsert Vectors + Metadata| Q
+
+    API -->|Embed Query| HF
+    HF -->|Query Vector| API
+    API -->|Similarity Search| Q
+    Q -->|Relevant Context| API
+
+    API -->|Context + Prompt| Groq
+    Groq -->|Generated Response| API
+    API -->|Answer + References| UI
+    UI --> User
 ```
 
 ---
 
-## Complete Tech Stack
+## Running Locally
 
-### Frontend
-* **Streamlit:** Python-based UI framework styled with a custom dark-mode B2B SaaS theme configuration.
+To run the full dual-service architecture on your local machine, you will need two terminal windows.
 
-### Backend & Orchestration
-* **FastAPI & Uvicorn:** High-performance web framework acting as the core orchestrator.
-* **Inngest:** Event-driven background job queue ensuring robust error handling, automatic retries, and non-blocking UI interactions.
-
-### Data & AI Layer
-* **LlamaIndex:** Used for PDF ingestion and intelligent overlapping sentence chunking.
-* **Sentence-Transformers:** Local, zero-cost vector embedding generation utilizing the HuggingFace `all-MiniLM-L6-v2` model.
-* **Groq API:** Blazing fast LLM inference running the `groq/compound` model via the standard OpenAI SDK.
-* **Qdrant:** High-performance Vector Database operating in persistent local storage mode.
-
----
-
-## How to Run Locally
-
-### 1. Prerequisites
-Ensure you have Python 3.12+ installed.
-Create a `.env` file in the root directory and add your Groq API Key:
-```env
-GROQ_API_KEY=your_api_key_here
-```
-
-### 2. Installation
-Create a virtual environment and install the required dependencies:
+### 1. Start the FastAPI Backend
 ```bash
-python -m venv .venv
+# Activate your virtual environment
 .venv\Scripts\activate
-pip install -r requirements.txt
-```
 
-### 3. Starting the Services
-This application requires three separate processes running simultaneously. Open three terminal windows and run the following:
-
-**Terminal 1 (Background Queue):**
-```bash
-npx inngest-cli@latest dev -u http://127.0.0.1:8000/api/inngest
-```
-
-**Terminal 2 (FastAPI Backend):**
-```bash
-.venv\Scripts\activate
+# Start the API server on port 8000
 uvicorn main:app --reload --port 8000
 ```
 
-**Terminal 3 (Streamlit Frontend):**
+### 2. Start the Streamlit Frontend
 ```bash
+# In a second terminal window, activate the environment
 .venv\Scripts\activate
+
+# Launch the user interface
 streamlit run app.py
 ```
+*Note: The frontend will automatically open in your browser at `http://localhost:8501`.*
